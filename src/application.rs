@@ -11,13 +11,13 @@ use crate::user_event::UserEvent;
 
 
 pub trait Layer {
-fn init(&mut self) -> Result<(), String>;
+    fn new(app : &mut Application) -> Self where Self : Sized;
 
 
-fn on_event(&mut self, event : UserEvent) -> Result<(), String>;
+    fn on_event(&mut self, event : UserEvent) -> Result<(), String>;
 
 
-fn on_render(&mut self) -> Result<(), String>;
+    fn on_update(&mut self) -> Result<(), String>;
 }
 
 pub struct Application {
@@ -33,20 +33,17 @@ impl Application {
 
     pub fn new(event_loop: &EventLoop<()>) -> Self {
         let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-        let renderer = pollster::block_on(Renderer::new(&window));
+        let mut renderer = Renderer::new(&window);
+
+        renderer.stage::<GeomStage>();
+
         let (width, height) = (window.inner_size().width, window.inner_size().height);
         Application { window, renderer, size: (width, height), layers : Vec::new() }
     }
 
-    pub fn add_layer(&mut self, layer : Box<dyn Layer>) {
+    pub fn attach<T : Layer + 'static>(&mut self) {
+        let layer = Box::new(T::new(self));
         self.layers.push(layer);
-    }
-
-    pub fn init(&mut self) -> Result<(), String>{
-        for layer in &mut self.layers {
-            layer.init()?;
-        }
-        Ok(())
     }
 
     pub fn render(&mut self) {
@@ -60,18 +57,13 @@ impl Application {
                 window_id,
             } if window_id == self.window.id() => match event {
                 WindowEvent::RedrawRequested => {
-                    let _ = self.renderer.render();
+                    self.render();
                     self.window.request_redraw();
-                    for layer in &mut self.layers {
-                        layer.on_render().unwrap();
-                    }
                 },
                 WindowEvent::Resized(new_size) => {
                     if new_size.width > 0 && new_size.height > 0 {
                         self.size = (new_size.width, new_size.height);
-
                         self.renderer.resize(self.size.0, self.size.1);
-
                         self.window.request_redraw();
                     }
 
