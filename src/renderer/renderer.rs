@@ -33,6 +33,7 @@ pub struct Renderer {
   state: RenderState,
   camera: Camera,
   passes: Vec<Box<dyn RenderPass>>, 
+  camera_buffer: wgpu::Buffer
 }
 
 impl Renderer {
@@ -124,7 +125,7 @@ impl Renderer {
 
     let state = RenderState { surface, device, queue, config, shared: shared_bind_groups };
 
-    Self { state, camera, passes: Vec::new() }
+    Self { state, camera, passes: Vec::new(), camera_buffer }
   } 
 
   pub fn stage<T: RenderPass + 'static>(&mut self) -> &mut Self {
@@ -139,6 +140,11 @@ impl Renderer {
     self.state.surface.configure(&self.state.device, &self.state.config);
 
     self.camera.resize(width, height);
+
+    let mut camera_uniform = CameraUniform::new();
+    camera_uniform.update_view_proj(&self.camera);
+
+    self.state.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[camera_uniform]));
   }
 
   pub fn render(&mut self) {

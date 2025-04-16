@@ -64,7 +64,7 @@ impl Application {
                     if new_size.width > 0 && new_size.height > 0 {
                         self.size = (new_size.width, new_size.height);
                         self.renderer.resize(self.size.0, self.size.1);
-                        self.window.request_redraw();
+                        self.render();
                     }
 
                 }
