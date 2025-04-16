@@ -1,77 +1,92 @@
-use std::sync::Arc;
-use winit::{window::Window, event_loop::EventLoop};
-use winit::event::{Event, WindowEvent};
-use winit::event_loop::EventLoopWindowTarget;
-use winit::window::WindowBuilder;
+use rand::Rng;
 
-use crate::renderer::renderer::Renderer;
-use crate::renderer::geom_stage::GeomStage;
+use crate::{gui::layout::{self, LayoutElement}, objects::{Color, Quad2D}, user_event::UserEvent};
 
-use crate::user_event::UserEvent;
+use super::renderer::{ Context, Renderer, Window };
 
 
-pub trait Layer {
-    fn new(app : &mut Application) -> Self where Self : Sized;
-
-
-    fn on_event(&mut self, event : UserEvent) -> Result<(), String>;
-
-
-    fn on_update(&mut self) -> Result<(), String>;
-}
 
 pub struct Application {
-    window: Arc<Window>,
-    renderer: Renderer,
-    size: (u32, u32),
+    window : Window,
+    renderer : Renderer,
 
-    layers : Vec<Box<dyn Layer>>
+    context : Context,
+    running : bool,
+
+    layout : Option<Box<dyn LayoutElement>>
 }
+
+
 
 
 impl Application {
 
-    pub fn new(event_loop: &EventLoop<()>) -> Self {
-        let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-        let mut renderer = Renderer::new(&window);
 
-        renderer.stage::<GeomStage>();
+    pub fn new() -> Result<Self, String> {
 
-        let (width, height) = (window.inner_size().width, window.inner_size().height);
-        Application { window, renderer, size: (width, height), layers : Vec::new() }
+        let mut context = Context::new()?;
+
+        
+        let mut window = context.create_window("Redwood", 800, 600);
+
+        let renderer = context.create_renderer(&mut window);
+
+        Ok(Application { window, renderer, context, running: true, layout: None})
     }
 
-    pub fn attach<T : Layer + 'static>(&mut self) {
-        let layer = Box::new(T::new(self));
-        self.layers.push(layer);
+    pub fn update(&mut self) {
+        while let Some(event) = self.poll() {
+            match event {
+                UserEvent::Quit => self.running = false,
+                UserEvent::Resize(width, height) => {
+                    self.renderer.resize(width, height);
+                    self.render();
+                }
+                _ => continue
+        } 
+
+        self.render();
     }
+}
 
     pub fn render(&mut self) {
-        self.renderer.render();
-    }
-
-    pub fn event_handler(&mut self, event : Event<()>, control_flow: &EventLoopWindowTarget<()>) {
-        match event {
-            Event::WindowEvent {
-                ref event,
-                window_id,
-            } if window_id == self.window.id() => match event {
-                WindowEvent::RedrawRequested => {
-                    self.render();
-                    self.window.request_redraw();
-                },
-                WindowEvent::Resized(new_size) => {
-                    if new_size.width > 0 && new_size.height > 0 {
-                        self.size = (new_size.width, new_size.height);
-                        self.renderer.resize(self.size.0, self.size.1);
-                        self.render();
-                    }
-
-                }
-                WindowEvent::CloseRequested => control_flow.exit(),
-                _ => {}
-            },
-            _ => {}
+        self.renderer.begin();
+        
+        let frame = self.window.get_size();
+        
+        if let Some(layout) = &mut self.layout {
+            
+            if frame.0 != 0 && frame.1 != 0 {
+                layout.calculate(frame.0, frame.1, 10);
+                
+                let mut rng = rand::rng();
+                for child in layout.iter()  {
+                    self.renderer.draw_quad(
+                        &Quad2D { 
+                            x: child.computed.x, 
+                            y: child.computed.y, 
+                            width: child.computed.width, 
+                            height: child.computed.height, 
+                            color: Color { r: rng.random_range(0..256) as u8, g: rng.random_range(0..256) as u8, b: rng.random_range(0..256) as u8, a: 255 }
+                        }
+                    );
+                };
+            }
         }
+        
+        self.renderer.end()
     }
+
+    pub fn running(&self) -> bool {
+        self.running
+    }
+
+    pub fn show<T : LayoutElement + 'static>(&mut self, layout : T) {
+        self.layout = Some(Box::new(layout));
+        self.window.show();
+    }
+
+    fn poll(&mut self) -> Option<UserEvent> {
+        self.window.poll_event()
+    } 
 }

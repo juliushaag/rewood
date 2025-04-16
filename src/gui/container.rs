@@ -1,30 +1,29 @@
-use wgpu::naga::MathFunction;
 
-use super::{ Layout, GUIElement, LayoutError, Size };
+use crate::gui::layout::{Layout, LayoutElement, };
 
-struct Container {
-  width_size : Size, 
-  children: Vec<Box<dyn GUIElement>>
+pub struct Container {
+  name : String,
+  layout: Layout,
 }
 
 
-impl GUIElement for Container {
-    fn children(&self) -> &Vec<Box<dyn GUIElement>> {
-      return &self.children
-    }
-
-   
-  fn calculate_layout_horizontal(&mut self, width: u32, height: u32) -> Result<Layout, LayoutError> {
-    match  {
-        
-    }
+impl LayoutElement for Container {
+  fn layout(&self) -> &Layout {
+    &self.layout
   }
 
-
-  fn calculate_layout_vertical(&mut self, width: u32, height: u32) -> Result<Layout, LayoutError> {
-
+  fn layout_mut(&mut self) -> &mut Layout {
+    &mut self.layout
   }
 }
+
+impl Container {
+
+  pub fn new<T: Into<String>>(name : T) -> Self {
+    Container { name: name.into(), layout: Default::default() }
+  }
+}
+
 
 
 
@@ -34,7 +33,8 @@ impl GUIElement for Container {
 
 let root = Container::new("Left Part")
   .height(Size::Max)
-  .width(Size::Resizable(0.2, RESIZE::FOLD))
+  .width(Size::Resizable(0.2))
+  .resizable(Some(0.2), None, Resizable::Fold)
   .vertical({
     Container::new("Connection Status")
       .width(Size::Max)

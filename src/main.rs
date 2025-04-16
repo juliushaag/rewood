@@ -1,43 +1,57 @@
-use winit::event_loop::EventLoop;
+#[allow(dead_code)]
+#[allow(unused_variables)]
+
 mod application;
 mod user_event;
-
 mod renderer;
+mod objects;
 
-use user_event::{ UserEvent };
-use application::{ Application, Layer};
+#[macro_use]
+mod gui;
 
- 
-struct TestLayer {}
-
-impl Layer for  TestLayer {
-    fn new(app : &mut Application) -> Self {
-        TestLayer {  }
-    }
-
-    fn on_event(&mut self, event : UserEvent) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn on_update(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-}
+use gui::{container::Container, layout::{Alignment, LayoutElement, Size}};
+use application::Application;
 
 
+fn main() -> Result<(), String>{
+
+    let mut app = Application::new()?;
+
+
+    let layout = Container::new("Main Page")
+        .horizontal(vec![
+            Container::new("Left Part")
+                .width(Size::Unit(20.0))
+                .height(Size::Max)
+                .align(Alignment::Even)
+                .vertical(vec![
+                    Container::new("Left Part")
+                        .width(Size::Unit(10.0))
+                        .height(Size::Same)
+                        .boxed(),
+                    Container::new("Left Part")
+                        .width(Size::Unit(12.0))
+                        .height(Size::Max)
+                        .boxed(),
+                ])
+                .boxed(),
+            Container::new("Right Part")
+                .width(Size::Max)
+                .height(Size::Max)
+                .boxed(),
+            Container::new("Left Part")
+                .width(Size::Unit(20.0))
+                .height(Size::Max)
+                .boxed(),
+        ]);
 
 
 
-fn main() -> Result<(), String> {
-    env_logger::init();
-    let event_loop = EventLoop::new().unwrap();
 
-    let mut app = Application::new(&event_loop);
-
-    app.attach::<TestLayer>();
- 
-
-    let _ = event_loop.run(move |event, control_flow| app.event_handler(event, control_flow));
+    app.show(layout);
+    
+    
+    while app.running() { app.update(); }
 
     Ok(())
 }
