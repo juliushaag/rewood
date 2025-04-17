@@ -24,17 +24,17 @@ fn main() -> Result<(), String>{
                 .width(Size::Unit(20.0))
                 .height(Size::Max)
                 .align(Alignment::Even)
-                .margin(&[0.5, 0.5])
+                .margin(0.5)
+                .padding(1.0)
                 .vertical(vec![
                     Container::new("Left Part")
                         .width(Size::Max)
                         .height(Size::Unit(20.0))
-                        .margin(&[0.5, 0.5])
                         .boxed(),
                     Container::new("Left Part")
                         .width(Size::Max)
-                        .height(Size::Max)
-                        .margin(&[0.5, 0.5])
+                        .height(Size::Unit(20.0))
+                        .margin(0.7)
                         .boxed(),
                 ])
                 .boxed(),
