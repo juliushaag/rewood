@@ -11,15 +11,20 @@ Fixed (Pixel, Content)
 
 # Instead of pixel make layoutsize (also effects font, those two should be linked) LayoutSized 1 Unit := FontHeight
 
-Wihout padding ore margin considerations 
+Without padding ore margin considerations 
 
+Okay so how do we work on overflow components
+- Outer frame (outer frame contraint) 
+- Inner frame ()
 
 */
+
+use std::cmp::max;
 
 use crate::objects::Quad2D;
 
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 pub enum Size {
 
   Max, // Take up all the remaing space (if there is any)
@@ -47,13 +52,19 @@ pub enum Alignment {
 }
 
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Default)]
 pub struct ComputedLayout {
-  pub width : u32,
-  pub height : u32,
+  pub outer_dim : (u32, u32),
+  pub outer_pos : (u32, u32),
+  
+  pub inner_dim : (u32, u32),
+  pub inner_pos : (u32, u32),
 
-  pub x: u32,
-  pub y: u32
+  pub content_dim : (u32, u32),
+  pub content_pos : (u32, u32),
+
+  pub core_dim : (u32, u32),
+  pub core_pos : (u32, u32),
 }
 
 pub struct Layout {
@@ -86,7 +97,7 @@ impl Default for Layout {
           vsize: Size::Content, 
           halign: Alignment::Start, 
           valign: Alignment::Start, 
-          computed: ComputedLayout { width: 0, height: 0, x: 0, y: 0 },
+          computed: Default::default(),
           children: Default::default() 
       }
     }
@@ -133,6 +144,74 @@ pub trait LayoutElement {
     }
     self
   }
+
+  
+  fn margin(mut self, margin: f32) -> Self
+  where
+    Self: Sized, 
+  {
+    self.layout_mut().margin.iter_mut().for_each(|x| { *x = margin }); 
+    self
+  }
+
+  fn margin_axis(mut self, xmargin: f32, ymargin : f32) -> Self
+  where
+    Self: Sized, 
+  {
+    let layout = self.layout_mut();
+    layout.margin[0] = xmargin;
+    layout.margin[1] = xmargin;
+    layout.margin[2] = ymargin;
+    layout.margin[3] = ymargin;   
+    self
+  }
+
+  fn margin_all(mut self, left: f32, right : f32, top : f32, bottom : f32) -> Self
+  where
+    Self: Sized, 
+  {
+    let layout = self.layout_mut();
+    layout.margin[0] = left;
+    layout.margin[1] = right;
+    layout.margin[2] = top;
+    layout.margin[3] = bottom;   
+    self
+  }
+  
+  
+  fn padding(mut self, padding: f32) -> Self
+  where
+    Self: Sized, 
+  {
+    self.layout_mut().padding.iter_mut().for_each(|x| { *x = padding }); 
+    self
+  }
+
+  fn padding_axis(mut self, xpadding: f32, ypadding : f32) -> Self
+  where
+    Self: Sized, 
+  {
+    let layout = self.layout_mut();
+    layout.padding[0] = xpadding;
+    layout.padding[1] = xpadding;
+    layout.padding[2] = ypadding;
+    layout.padding[3] = ypadding;   
+    self
+  }
+
+  fn padding_all(mut self, left: f32, right : f32, top : f32, bottom : f32) -> Self
+  where
+    Self: Sized, 
+  {
+    let layout = self.layout_mut();
+    layout.padding[0] = left;
+    layout.padding[1] = right;
+    layout.padding[2] = top;
+    layout.padding[3] = bottom;   
+    self
+  }
+  
+
   fn width(mut self, sizing: Size) -> Self
   where
     Self: Sized,
@@ -151,8 +230,9 @@ pub trait LayoutElement {
 
   fn calculate(&mut self, width: u32, height: u32, unit_size: u32) {
     let layout = self.layout_mut();
-    if layout.calculate(LayoutInfo { width, height, unit_size }).is_ok() {
-      layout.position(0, 0);
+    let layout_info = LayoutInfo { width, height, x: 0, y: 0, unit_size };
+    if layout.calculate(layout_info).is_ok() {
+      layout.position(layout_info);
     }
   }
 
@@ -162,15 +242,8 @@ pub trait LayoutElement {
 }
 
 
-
-
-
-
 pub enum LayoutError {
-  InsufficientSpace,
-  UnresolvedSize,
   MultipleMaxChildren,
-
   DoubleSameSized,
 }
 
@@ -181,13 +254,19 @@ pub enum LayoutError {
 struct LayoutInfo {
   width: u32,
   height: u32,
+  x: u32,
+  y: u32,
   unit_size: u32
 }
 
 impl LayoutInfo {
 
   pub fn shrink(&self, width: u32, height: u32) -> Self {
-    LayoutInfo { width: width, height: height, unit_size: self.unit_size }
+    LayoutInfo { width: width, height: height, x: self.x, y: self.y, unit_size: self.unit_size }
+  }
+
+  pub fn shrink_frame(&self, x: u32, y: u32, width: u32, height: u32) -> Self {
+    LayoutInfo { width: width, height: height, x: x, y: y, unit_size: self.unit_size }
   }
 }
 
@@ -199,14 +278,9 @@ impl<'a> Iterator for LayoutIter<'a> {
   type Item = &'a Layout;
 
   fn next(&mut self) -> Option<Self::Item> {
-      if let Some(layout) = self.stack.pop() {
-          for child in layout.layouts().collect::<Vec<_>>().into_iter().rev() {
-              self.stack.push(child);
-          }
-          Some(&layout)
-      } else {
-          None
-      }
+    let layout = self.stack.pop()?;
+    self.stack.extend(layout.layouts());
+    Some(layout)
   }
 }
 
@@ -234,7 +308,6 @@ impl Layout {
   }
 
   pub fn width(&self, width : u32, unit_size : u32) -> Result<u32, LayoutError>{
-
     match self.horizontal() {
       Size::Relative(factor) => Ok((factor * width as f32 ) as u32),
       Size::Unit(factor) => Ok((factor *  unit_size as f32) as u32),
@@ -242,10 +315,31 @@ impl Layout {
       Size::Max => Ok(width),
       Size::Same => return Err(LayoutError::DoubleSameSized),
     }
+  }
+
+  pub fn inner_width(&self, width : u32, unit_size : u32) -> Result<u32, LayoutError>{
+
+   let mut width = self.width(width, unit_size);
+
+    if let Ok(width) = &mut width  {  
+      *width = width.saturating_sub(((self.margin[0] + self.margin[1]) * unit_size as f32)  as u32);
+    }
+
+    width
   } 
 
-  pub fn height(&self, height : u32, unit_size : u32) -> Result<u32, LayoutError>{
+  pub fn content_width(&self, width : u32, unit_size : u32) -> Result<u32, LayoutError> {
+    let mut width = self.inner_width(width, unit_size);
 
+    if let Ok(width) = &mut width  {  
+      *width = width.saturating_sub(((self.padding[0] + self.padding[1]) * unit_size as f32)  as u32);
+    }
+
+    width
+  }
+
+
+  pub fn height(&self, height : u32, unit_size : u32) -> Result<u32, LayoutError> {
     match self.vertical() {
       Size::Relative(factor) => Ok((factor * height as f32) as u32),
       Size::Unit(factor) => Ok((factor *  unit_size as f32) as u32),
@@ -253,227 +347,277 @@ impl Layout {
       Size::Max => Ok(height),
       Size::Same => return Err(LayoutError::DoubleSameSized),
     }
+  }
+
+  pub fn inner_height(&self, height : u32, unit_size : u32) -> Result<u32, LayoutError>{
+
+    let mut height = self.height(height, unit_size);
+
+    if let Ok(height) = &mut height {
+      *height = height.saturating_sub(((self.margin[2] + self.margin[3]) * unit_size as f32)  as u32);
+    }
+    height
+  } 
+
+  pub fn content_height(&self, height : u32, unit_size : u32) -> Result<u32, LayoutError>{
+
+    let mut height = self.inner_height(height, unit_size);
+
+    if let Ok(height) = &mut height {
+      *height = height.saturating_sub(((self.padding[2] + self.padding[3]) * unit_size as f32)  as u32);
+    }
+    height
   } 
 
 
   pub fn calculate(&mut self, info : LayoutInfo) -> Result<(), LayoutError> {
-    println!("{}, {}", info.width, info.height);
-    match self.axis {
-      Axis::Horizontal => self.calculate_horizontal(info)?,
-      Axis::Vertical => self.calculate_vertical(info)?
+
+    self.computed.outer_dim = (self.width(info.width, info.unit_size)?, self.height(info.height, info.unit_size)?);
+    self.computed.inner_dim = (self.inner_width(info.width, info.unit_size)?, self.inner_height(info.height, info.unit_size)?);
+    self.computed.content_dim = (self.content_width(info.width, info.unit_size)?, self.content_height(info.height, info.unit_size)?);
+
+    let (child_width, child_height) = match self.axis {
+      Axis::Horizontal => {
+        self.calculate_horizontal(info.shrink(self.computed.content_dim.0, self.computed.content_dim.1))?;
+        let child_width : u32 = self.layouts().map(|l| l.computed.outer_dim.0).sum();
+        let child_height = self.layouts().map(|l| l.computed.outer_dim.1).max().unwrap_or(0);
+        (child_width, child_height)
+      }
+      Axis::Vertical => {
+        self.calculate_vertical(info.shrink(self.computed.content_dim.0, self.computed.content_dim.1))?;
+        let child_width : u32 = self.layouts().map(|l| l.computed.outer_dim.0).max().unwrap_or(0);
+        let child_height = self.layouts().map(|l| l.computed.outer_dim.1).sum();
+        (child_width, child_height)
+      }
+    };
+
+    // 5) compute own size
+    self.computed.core_dim = (child_width, child_height);
+    if self.horizontal() == Size::Content && child_width < self.computed.content_dim.0 {
+      self.computed.content_dim.0 = child_width;
+      self.computed.inner_dim.0 = child_width + ((self.padding[0] + self.padding[1]) * info.unit_size as f32) as u32;
+      self.computed.outer_dim.0 = child_width + ((self.margin[0] + self.margin[1]) * info.unit_size as f32) as u32;
     }
-    println!("{}, {}", self.computed.width, self.computed.height);
+
+    if self.vertical() == Size::Content && child_height < self.computed.content_dim.1 {
+      self.computed.content_dim.1 = child_height;
+      self.computed.inner_dim.1 = child_height + ((self.padding[2] + self.padding[3]) * info.unit_size as f32) as u32;
+      self.computed.outer_dim.1 = child_height + ((self.margin[2] + self.margin[3]) * info.unit_size as f32) as u32;
+    }
+
     Ok(())
   }
+  fn calculate_horizontal(&mut self, info: LayoutInfo) -> Result<(), LayoutError> {
 
-  fn calculate_horizontal(&mut self, info : LayoutInfo) -> Result<(), LayoutError>{
+    let width =self.computed.content_dim.0; 
+    let height = self.computed.content_dim.1;
 
-    let width = self.width(info.width, info.unit_size)?;
-    let height = self.height(info.height, info.unit_size)?;
+    // 0) group children by sizing mode
+    let mut rem : i32 = width as i32;
+    let mut fixed = Vec::new();
+    let mut content = Vec::new();
+    let mut max_child = None;
 
-    let mut child_width = width;
-    
-    // 1. First iterate over all fixed sized children
     for child in self.layouts_mut() {
-      if !matches!(child.horizontal(), Size::Relative(_) | Size::Unit(_)) { continue }
-      println!("info {}, {}", info.width, info.height);
-      child.calculate(info)?;
-      child_width -= child.computed.width;
+      match child.horizontal() {
+        Size::Relative(_) | Size::Unit(_) => fixed.push(child),
+        Size::Content           => content.push(child),
+        Size::Max               => {
+          if max_child.is_some() { 
+            return Err(LayoutError::MultipleMaxChildren);
+          };
+          max_child = Some(child)
+        }
+        _ => {}
+      }
     }
-      
-    for child in self.layouts_mut()  {
-      if !matches!(child.horizontal(), Size::Content) { continue }
-
-      child.calculate(info.shrink(child_width, height))?;
-      child_width -= child.computed.width;
-    }
-
-    if child_width <= 0 { return Err(LayoutError::InsufficientSpace)}
-
-    if let Some(child) = self.layouts_mut().find(|ch| ch.horizontal() == Size::Max) {
-      child.calculate(info.shrink(child_width, height))?;
-    }
-
-    let width = if self.horizontal() == Size::Content {
-      self.layouts().map(|l| l.computed.width).sum() 
-    } else { 
-      width 
-    };
-
-    self.computed.width = width;
-    self.computed.height = if self.vertical() == Size::Content {
-      self.layouts().map(|l| l.computed.height).max().unwrap_or(0)
-    } else {
-      height
-    };
-
-    println!("{}, {}", self.computed.height, self.computed.width);
-
-    Ok(())
-  }
-
-  fn calculate_vertical(&mut self, info : LayoutInfo) -> Result<(), LayoutError>{
-
-    let width = self.width(info.width, info.unit_size)?;
-    let height = self.height(info.height, info.unit_size)?;
-
-    let mut child_height = height;
+    // Combine fixed and content layouts
+    fixed.append(&mut content);
     
-    // 1. First iterate over all fixed sized children
-    for child in self.layouts_mut() {
-     if !matches!(child.vertical(), Size::Relative(_) | Size::Unit(_)) { continue }
-     
-      child.calculate(info.clone())?;
-      child_height -= child.computed.height;
-    }
-      
-    for child in self.layouts_mut(){
-      if !matches!(child.vertical(), Size::Content) { continue }
-
-      child.calculate(info.shrink(width, child_height))?;
-      child_height -= child.computed.height;
+    // 1) layout fixed and content-size
+    for ch in &mut fixed {
+      ch.calculate(info)?;
+      rem = rem - ch.computed.outer_dim.0 as i32;
     }
 
-    if child_height <= 0 { return Err(LayoutError::InsufficientSpace)}
-
-    if let Some(child) = self.layouts_mut().find(|ch| ch.vertical() == Size::Max) {
-      child.calculate(info.shrink(width, child_height))?;
-    }
-
-    let height = if self.vertical() == Size::Content {
-      self.layouts().map(|l| l.computed.height).sum() 
-    } else { 
-      height 
-    };
-
-
-    self.computed.height = height;
-
-    self.computed.width = if self.horizontal() == Size::Content {
-      self.layouts().map(|l| l.computed.width).max().unwrap_or(0)
-    } else {
-      width
-    };
+    // 2) remaining max-sized child
+    if let Some(ch) = max_child {
+      ch.calculate(info.shrink(max(rem, 0) as u32, height))?;
+    }    
 
     Ok(())
   }
 
-  pub fn position(&mut self, x: u32, y: u32) {
-    match self.axis {
-        Axis::Horizontal => self.position_horizontal(x, y),
-        Axis::Vertical => self.position_vertical(x, y),
+  fn calculate_vertical(&mut self, info: LayoutInfo) -> Result<(), LayoutError> {
+    
+
+    let width = self.computed.content_dim.0;
+    let height = self.computed.content_dim.1;
+    let mut rem : i32 = height as i32;
+
+    // 0) group children by sizing
+    let mut fixed = Vec::new();
+    let mut content = Vec::new();
+    let mut max_child = None;
+    
+    for child in self.layouts_mut() {
+      match child.vertical() {
+        Size::Relative(_) | Size::Unit(_) => fixed.push(child),
+        Size::Content               => content.push(child),
+        Size::Max => {
+          if max_child.is_some() {
+            return Err(LayoutError::MultipleMaxChildren);
+          }
+          max_child = Some(child);
+        }
+        _ => {}
+      }
     }
+    
+    // Combine fixed and content layouts
+    fixed.append(&mut content);
+    
+    // 1) layout fixed and content-size
+    for ch in &mut fixed {
+      ch.calculate(info)?;
+      rem = rem - ch.computed.outer_dim.1 as i32;
+    }
+
+    // 3) remaining max-sized child
+    if let Some(ch) = max_child {
+      ch.calculate(info.shrink(width, max(rem, 0) as u32))?;
+    }    
+
+    Ok(())
   }
 
-  pub fn position_horizontal(&mut self, x : u32, y: u32) {
+  pub fn position(&mut self, info : LayoutInfo) {
+    self.computed.outer_pos.0 = info.x;
+    self.computed.outer_pos.1 = info.y;
+ 
+    self.computed.inner_pos.0 = self.computed.outer_pos.0 + (self.margin[0] * info.unit_size as f32) as u32; 
+    self.computed.inner_pos.1 = self.computed.outer_pos.1 + (self.margin[2] * info.unit_size as f32) as u32; 
 
-    self.computed.x = x;
-    self.computed.y = y;
+
+    self.computed.content_pos.0 = self.computed.inner_pos.0 + (self.padding[0] * info.unit_size as f32) as u32; 
+    self.computed.content_pos.1 = self.computed.inner_pos.1 + (self.padding[2] * info.unit_size as f32) as u32; 
 
     if self.children.len() == 0 { return; }
 
-    let total_child_width = self.layouts().map(|ch| ch.computed.width).sum::<u32>();
+    let layout_info = info.shrink_frame(
+      self.computed.content_pos.0, 
+      self.computed.content_pos.1, 
+      max(self.computed.content_dim.0, self.computed.core_dim.0), 
+      max(self.computed.content_dim.1, self.computed.core_dim.1)
+    );
+    
+
+    match self.axis {
+      Axis::Horizontal => self.position_horizontal(layout_info),
+      Axis::Vertical => self.position_vertical(layout_info),
+    }
+  }
+
+  pub fn position_horizontal(&mut self, info : LayoutInfo) {
+
+    let total_child_width = self.computed.core_dim.0;
+    let largets_height = self.computed.core_dim.1;
 
     let halignment = self.halign;
     let valignment = self.valign;
     
-    let start = self.computed.x;
-    let width = self.computed.width;
-    let space = self.computed.width - total_child_width;
+    let start = info.x;
+    let width = info.width;
+
+    let space = width - total_child_width;
     let evenly_spaced = space / (self.children.len() as u32 + 1) as u32;
     let mut running_width = 0;
 
-    let ystart = self.computed.y;
-    let yend = self.computed.y + self.computed.height;
+    let ystart = info.y;
+    let yend = info.y + info.height;
 
-    let largets_height = self.layouts().map(|ch| ch.computed.height).max().unwrap();
 
     for child in self.layouts_mut() {
       let x = match halignment {
         Alignment::Start => { 
-          running_width += child.computed.width;
-          start + running_width - child.computed.width
+          running_width += child.computed.outer_dim.0;
+          start + running_width - child.computed.outer_dim.0
         }
         Alignment::End => {
-          running_width += child.computed.width;
+          running_width += child.computed.outer_dim.0;
           start + width - running_width
           
         }
         Alignment::Center => {
-          running_width += child.computed.width;
-          start + (space / 2 as u32) + running_width - child.computed.width
+          running_width += child.computed.outer_dim.0;
+          start + (space / 2 as u32) + running_width - child.computed.outer_dim.0
         },
         Alignment::Even => {
-          running_width += child.computed.width + evenly_spaced;
-          start + running_width - child.computed.width
+          running_width += child.computed.outer_dim.0 + evenly_spaced;
+          start + running_width - child.computed.outer_dim.0
         }
       };
 
       let y = match valignment {
         Alignment::Start => ystart,
-        Alignment::End => yend - child.computed.height,
-        Alignment::Center => ystart + (yend - ystart - child.computed.height) / 2,
+        Alignment::End => yend - child.computed.outer_dim.1,
+        Alignment::Center => ystart + (yend - ystart - child.computed.outer_dim.1) / 2,
         Alignment::Even => ystart + (yend - ystart - largets_height) / 2,
       };
 
-      child.position(x, y);
+      child.position(info.shrink_frame(x, y, child.computed.outer_dim.0, child.computed.outer_dim.1));
     }
   }
 
 
-  pub fn position_vertical(&mut self, x : u32, y: u32) {
+  pub fn position_vertical(&mut self, info : LayoutInfo) {
 
-    self.computed.x = x;
-    self.computed.y = y;
-
-    if self.children.len() == 0 { return; }
-
-    let total_child_height = self.layouts().map(|ch| ch.computed.height).sum::<u32>();
-    let largest_width = self.layouts().map(|ch| ch.computed.width).max().unwrap();
-
+    let total_child_height = self.computed.core_dim.1;
+    let largest_width = self.computed.core_dim.0;
+    
     let halignment = self.halign;
     let valignment = self.valign;
     
-    let start = self.computed.y;
-    let height = self.computed.height;
+    let start = info.y;
+    let height = info.height;
 
     let space = height - total_child_height;
     let evenly_spaced = space / (self.children.len() as u32 + 1) as u32;
     let mut running_height = 0;
 
-    let xstart = self.computed.x;
-    let xend = self.computed.x + self.computed.width;
+    let xstart = info.x;
+    let xend = info.x + info.width;
 
 
     for child in self.layouts_mut() {
       let y = match valignment {
         Alignment::Start => { 
-          running_height += child.computed.height;
-          start + running_height - child.computed.height
+          running_height += child.computed.outer_dim.1;
+          start + running_height - child.computed.outer_dim.1
         }
         Alignment::End => {
-          running_height += child.computed.height;
+          running_height += child.computed.outer_dim.1;
           start + height - running_height
           
         }
         Alignment::Center => {
-          running_height += child.computed.height;
-          start + (space / 2 as u32) + running_height - child.computed.height
+          running_height += child.computed.outer_dim.1;
+          start + (space / 2 as u32) + running_height - child.computed.outer_dim.1
         },
         Alignment::Even => {
-          running_height += child.computed.height + evenly_spaced;
-          start + running_height - child.computed.height
+          running_height += child.computed.outer_dim.1 + evenly_spaced;
+          start + running_height - child.computed.outer_dim.1
         }
       };
 
       let x = match halignment {
         Alignment::Start => xstart,
-        Alignment::End => xend - child.computed.width,
-        Alignment::Center => xstart + (xend - xstart - child.computed.width) / 2,
+        Alignment::End => xend - child.computed.outer_dim.0,
+        Alignment::Center => xstart + (xend - xstart - child.computed.outer_dim.0) / 2,
         Alignment::Even => xstart + (xend - xstart - largest_width) / 2,
       };
 
-      child.position(x, y);
+      child.position(info.shrink_frame(x, y, child.computed.outer_dim.0, child.computed.outer_dim.1));
     }
   }
 
@@ -482,7 +626,6 @@ impl Layout {
 
 #[cfg(test)]
 mod tests {
-
   use super::*;
 
   struct TestElement {
@@ -525,14 +668,14 @@ mod tests {
       root.calculate(1000, 1000, 10);
       
       let layout = root.layout();
-      assert_eq!(layout.computed.width, 600); // 10*10 + 20*10 + 30*10
-      assert_eq!(layout.computed.height, 150); // max height 15*10
+      assert_eq!(layout.computed.outer_dim.0, 600); // 10*10 + 20*10 + 30*10
+      assert_eq!(layout.computed.outer_dim.1, 150); // max height 15*10
       
       // Check child positions
       let children: Vec<_> = layout.layouts().collect();
-      assert_eq!(children[0].computed.x, 0);
-      assert_eq!(children[1].computed.x, 100);
-      assert_eq!(children[2].computed.x, 300);
+      assert_eq!(children[0].computed.outer_pos.0, 0);
+      assert_eq!(children[1].computed.outer_pos.0, 100);
+      assert_eq!(children[2].computed.outer_pos.0, 300);
   }
   
   #[test]
@@ -547,8 +690,8 @@ mod tests {
       root.calculate(1000, 1000, 10);
       
       let layout = root.layout();
-      assert_eq!(layout.computed.height, 450); // 5*10 + 10*10 + 30*10
-      assert_eq!(layout.computed.width, 200); // max width 20*10
+      assert_eq!(layout.computed.outer_dim.1, 450); // 5*10 + 10*10 + 30*10
+      assert_eq!(layout.computed.outer_dim.0, 200); // max width 20*10
   }
   
   #[test]
@@ -566,7 +709,7 @@ mod tests {
       let children: Vec<_> = layout.layouts().collect();
       
       // Max-sized child should take remaining space (1000 - 100 - 300 = 600)
-      assert_eq!(children[1].computed.width, 600);
+      assert_eq!(children[1].computed.outer_dim.0, 600);
   }
   
   #[test]
@@ -588,18 +731,18 @@ mod tests {
       root.calculate(2000, 2000, 10);
       
       let layout = root.layout();
-      assert_eq!(layout.computed.width, 1000); // 100*10
-      assert_eq!(layout.computed.height, 1000); // 100*10
+      assert_eq!(layout.computed.outer_dim.0, 1000); // 100*10
+      assert_eq!(layout.computed.outer_dim.1, 1000); // 100*10
       
       // First child should be a horizontal layout with two elements
       let children: Vec<_> = layout.layouts().collect();
-      assert_eq!(children[0].computed.height, 200); // 20*10
+      assert_eq!(children[0].computed.outer_dim.1, 200); // 20*10
       
       // And it should have two children
       let grandchildren: Vec<_> = children[0].layouts().collect();
       assert_eq!(grandchildren.len(), 2);
-      assert_eq!(grandchildren[0].computed.width, 100); // 10*10
-      assert_eq!(grandchildren[1].computed.width, 200); // 20*10
+      assert_eq!(grandchildren[0].computed.outer_dim.0, 100); // 10*10
+      assert_eq!(grandchildren[1].computed.outer_dim.0, 200); // 20*10
   }
   
   #[test]
@@ -621,8 +764,8 @@ mod tests {
       let children: Vec<_> = layout.layouts().collect();
       
       // Child should be centered
-      assert_eq!(children[0].computed.x, 450); // (1000 - 100) / 2
-      assert_eq!(children[0].computed.y, 450); // (1000 - 100) / 2
+      assert_eq!(children[0].computed.outer_pos.0, 450); // (1000 - 100) / 2
+      assert_eq!(children[0].computed.outer_pos.1, 450); // (1000 - 100) / 2
   }
   
   #[test]
@@ -638,8 +781,8 @@ mod tests {
       root.calculate(1000, 1000, 10);
       
       let layout = root.layout();
-      assert_eq!(layout.computed.width, 400); // 10*10 + 30*10
-      assert_eq!(layout.computed.height, 200); // max(20*10, 10*10)
+      assert_eq!(layout.computed.outer_dim.0, 400); // 10*10 + 30*10
+      assert_eq!(layout.computed.outer_dim.1, 200); // max(20*10, 10*10)
   }
   
   #[test]
@@ -657,10 +800,10 @@ mod tests {
       let layout = root.layout();
       let children: Vec<_> = layout.layouts().collect();
       
-      assert_eq!(children[0].computed.width, 300); // 30% of 1000
-      assert_eq!(children[0].computed.height, 500); // 50% of 1000
-      assert_eq!(children[1].computed.width, 700); // 70% of 1000
-      assert_eq!(children[1].computed.height, 800); // 80% of 1000
+      assert_eq!(children[0].computed.outer_dim.0, 300); // 30% of 1000
+      assert_eq!(children[0].computed.outer_dim.1, 500); // 50% of 1000
+      assert_eq!(children[1].computed.outer_dim.0, 700); // 70% of 1000
+      assert_eq!(children[1].computed.outer_dim.1, 800); // 80% of 1000
   }
   
   #[test]
@@ -678,8 +821,8 @@ mod tests {
       let children: Vec<_> = layout.layouts().collect();
       
       // Width should match height (30*10 = 300)
-      assert_eq!(children[0].computed.width, 300);
-      assert_eq!(children[0].computed.height, 300);
+      assert_eq!(children[0].computed.outer_dim.0, 300);
+      assert_eq!(children[0].computed.outer_dim.1, 300);
   }
   
   #[test]
@@ -691,8 +834,7 @@ mod tests {
       root.calculate(1000, 1000, 10);
       
       let layout = root.layout();
-      assert_eq!(layout.computed.width, 500);
-      assert_eq!(layout.computed.height, 500);
+      assert_eq!(layout.computed.outer_dim.0, 500);
+      assert_eq!(layout.computed.outer_dim.1, 500);
   }
-  
 }

@@ -63,10 +63,10 @@ impl Application {
                 for child in layout.iter()  {
                     self.renderer.draw_quad(
                         &Quad2D { 
-                            x: child.computed.x, 
-                            y: child.computed.y, 
-                            width: child.computed.width, 
-                            height: child.computed.height, 
+                            x: child.computed.inner_pos.0, 
+                            y: child.computed.inner_pos.1, 
+                            width: child.computed.inner_dim.0, 
+                            height: child.computed.inner_dim.1, 
                             color: Color { r: rng.random_range(0..256) as u8, g: rng.random_range(0..256) as u8, b: rng.random_range(0..256) as u8, a: 255 }
                         }
                     );
