@@ -21,9 +21,6 @@ Okay so how do we work on overflow components
 
 use std::cmp::max;
 
-use crate::objects::Quad2D;
-
-
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum Size {
 
@@ -74,11 +71,11 @@ pub struct Layout {
 
   axis: Axis,
   
-  hsize: Size,
-  vsize: Size,
+  pub hsize: Size,
+  pub vsize: Size,
 
-  halign: Alignment,
-  valign: Alignment,
+  pub halign: Alignment,
+  pub valign: Alignment,
 
   pub computed : ComputedLayout,
 
@@ -150,20 +147,14 @@ pub trait LayoutElement {
   where
     Self: Sized, 
   {
-    self.layout_mut().margin.iter_mut().for_each(|x| { *x = margin }); 
-    self
+    self.margin_all(margin, margin, margin, margin)
   }
 
   fn margin_axis(mut self, xmargin: f32, ymargin : f32) -> Self
   where
     Self: Sized, 
   {
-    let layout = self.layout_mut();
-    layout.margin[0] = xmargin;
-    layout.margin[1] = xmargin;
-    layout.margin[2] = ymargin;
-    layout.margin[3] = ymargin;   
-    self
+    self.margin_all(xmargin, xmargin, ymargin, ymargin)
   }
 
   fn margin_all(mut self, left: f32, right : f32, top : f32, bottom : f32) -> Self
@@ -183,20 +174,14 @@ pub trait LayoutElement {
   where
     Self: Sized, 
   {
-    self.layout_mut().padding.iter_mut().for_each(|x| { *x = padding }); 
-    self
+    self.padding_all(padding, padding, padding, padding)
   }
 
   fn padding_axis(mut self, xpadding: f32, ypadding : f32) -> Self
   where
     Self: Sized, 
   {
-    let layout = self.layout_mut();
-    layout.padding[0] = xpadding;
-    layout.padding[1] = xpadding;
-    layout.padding[2] = ypadding;
-    layout.padding[3] = ypadding;   
-    self
+    self.padding_all(xpadding, xpadding, ypadding, ypadding)
   }
 
   fn padding_all(mut self, left: f32, right : f32, top : f32, bottom : f32) -> Self
@@ -236,12 +221,60 @@ pub trait LayoutElement {
     }
   }
 
-  fn iter(&self) -> LayoutIter {
-    self.layout().iter()
+  fn update_unit_size(&mut self, unit_size: u32) {}
+}
+
+pub struct LayoutIter<'a> {
+  stack: Vec<&'a dyn LayoutElement>
+}
+
+pub struct LayoutIterMut<'a> {
+  stack: Vec<&'a mut dyn LayoutElement>
+}
+
+
+impl dyn LayoutElement {
+  pub fn iter<'a>(&'a self) -> LayoutIter<'a> {
+      LayoutIter { stack: vec![self] }
+  }
+
+  pub fn iter_mut<'a>(&'a mut self) -> LayoutIterMut<'a> {
+      LayoutIterMut { stack: vec![self] }
   }
 }
 
 
+impl<'a> Iterator for LayoutIter<'a> {
+  type Item = &'a dyn LayoutElement;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    let layout = self.stack.pop()?;
+    self.stack.extend(layout.layout().children.iter().map(|ch| ch.as_ref()));
+    Some(layout)
+  }
+}
+
+impl<'a> Iterator for LayoutIterMut<'a> {
+  type Item = &'a mut dyn LayoutElement;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    let layout = self.stack.pop()?;
+    
+    // We need to be careful with borrowing here
+    // First gather all children references before extending the stack
+    let mut children = Vec::new();
+    for child in &mut layout.layout_mut().children {
+      // SAFETY: We know that each child is only processed once in this iterator
+      let child_ref = unsafe { &mut *(child.as_mut() as *mut dyn LayoutElement) };
+      children.push(child_ref);
+    }
+    
+    // Now extend the stack with these children
+    self.stack.extend(children);
+    
+    Some(layout)
+  }
+}
 pub enum LayoutError {
   MultipleMaxChildren,
   DoubleSameSized,
@@ -266,30 +299,12 @@ impl LayoutInfo {
   }
 
   pub fn shrink_frame(&self, x: u32, y: u32, width: u32, height: u32) -> Self {
-    LayoutInfo { width: width, height: height, x: x, y: y, unit_size: self.unit_size }
-  }
-}
-
-pub struct LayoutIter<'a> {
-  stack: Vec<&'a Layout>
-}
-
-impl<'a> Iterator for LayoutIter<'a> {
-  type Item = &'a Layout;
-
-  fn next(&mut self) -> Option<Self::Item> {
-    let layout = self.stack.pop()?;
-    self.stack.extend(layout.layouts());
-    Some(layout)
+    LayoutInfo { width: width, height: height, x: x, y: y, unit_size: self.unit_size }  
   }
 }
 
 
 impl Layout {
-
-  pub fn iter(&self) -> LayoutIter {
-    LayoutIter { stack: vec![self] }
-  }
 
   pub fn layouts(&self) -> impl Iterator<Item = &Layout> {
     self.children.iter().map(|ch| ch.layout())
@@ -581,7 +596,7 @@ impl Layout {
     let start = info.y;
     let height = info.height;
 
-    let space = height - total_child_height;
+    let space = info.height - total_child_height;
     let evenly_spaced = space / (self.children.len() as u32 + 1) as u32;
     let mut running_height = 0;
 

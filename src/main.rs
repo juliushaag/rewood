@@ -3,7 +3,6 @@
 
 mod application;
 mod user_event;
-mod renderer;
 mod objects;
 
 #[macro_use]
@@ -15,7 +14,6 @@ use application::Application;
 
 fn main() -> Result<(), String>{
 
-    let mut app = Application::new()?;
 
 
     let layout = Container::new("Main Page")
@@ -23,7 +21,6 @@ fn main() -> Result<(), String>{
             Container::new("Left Part")
                 .width(Size::Unit(20.0))
                 .height(Size::Max)
-                .align(Alignment::Even)
                 .margin(0.5)
                 .padding(1.0)
                 .vertical(vec![
@@ -37,24 +34,45 @@ fn main() -> Result<(), String>{
                         .margin(0.7)
                         .boxed(),
                 ])
+
+                .align(Alignment::Even)
                 .boxed(),
             Container::new("Right Part")
                 .width(Size::Max)
                 .height(Size::Max)
+                .horizontal(vec![
+                    Container::new("Left Part")
+                    .width(Size::Same)
+                    .height(Size::Unit(20.0))
+                    .margin(0.7)
+                    .boxed(),
+                    Container::new("Left Part")
+                    .width(Size::Same)
+                    .height(Size::Unit(20.0))
+                    .margin(0.7)
+                    .boxed(),
+                    Container::new("Left Part")
+                    .width(Size::Same)
+                    .height(Size::Unit(40.0))
+                    .margin(0.7)
+                    .boxed(),
+                    Container::new("Left Part")
+                    .width(Size::Same)
+                    .height(Size::Unit(20.0))
+                    .margin(0.7)
+                    .boxed(),    
+                ])
+                .align(Alignment::Even)
                 .boxed(),
             Container::new("Left Part")
                 .width(Size::Unit(20.0))
                 .height(Size::Max)
-                .boxed(),
+                .boxed()
         ]);
 
-
-
-
-    app.show(layout);
     
-    
-    while app.running() { app.update(); }
+    let app = Application::new(layout);
+    app.run();
 
     Ok(())
 }
